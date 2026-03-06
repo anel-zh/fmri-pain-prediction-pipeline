@@ -1,0 +1,141 @@
+%% 1.2 Loading Models
+% Load all models into a structure -> final model parametrs are from
+% 9Jun2025_final_model => updated before project transfer 17th June 2025
+% Main goal: to separate connectivity and activation weights in combined
+% model for easier vissualization 
+function model_data = HH_loading_final_models(basedir, model, dataset, weights_option)
+predictors = {'connectivity', 'connectivity_and_hrf_voxel', 'hrf_voxel'};
+runs = {'caps_rest', 'caps'};
+model_data = struct();
+
+if strcmp(model, 'model01_Schaefer')
+    connectivity_end_idx = 265*264/2; % 265 ROI
+else
+    connectivity_end_idx = 279*278/2; % Fan 279 atlas
+end
+
+switch dataset
+    case 'mpc_wani'
+        load_mpc_wani
+    case 'mpc_100'
+        load_mpc_100
+end
+
+
+    function load_mpc_wani
+        % Loading 1 file if normal weights are needed, in case of boot
+        % files are loaded iteratively
+        if strcmp(weights_option, 'normal_wei')
+            temp_data =  load(fullfile(basedir, '/model_development_results/9Jun2025_final_model//results_structure_full.mat'), 'testing');
+        end
+
+        for p = 1:length(predictors)
+            for r = 1:length(runs)
+                % Choosing from which files to load
+                if strcmp(weights_option, 'boot_wei')
+                    filename = fullfile(basedir, '/model_development_results/9Jun2025_final_model/bootstrap10000/', [predictors{p} '_' runs{r} '.mat']);
+
+                    if exist(filename, 'file')
+                        temp_data = load(filename);
+                    else
+                        warning(['File not found: ' filename]);
+                    end
+                end
+
+
+                % ==== Boot weights  + p-values
+                if strcmp(weights_option, 'boot_wei')
+                    wei = temp_data.boot10_res.stats_table.stats_cv_pcr.WTS.wmean;
+                    wei_p = temp_data.boot10_res.stats_table.stats_cv_pcr.WTS.wP;
+                    switch predictors{p}
+                        case 'connectivity_and_hrf_voxel'
+                            model_data.(predictors{p}).(runs{r}).C_wei = wei(1, 1:connectivity_end_idx);
+                            model_data.(predictors{p}).(runs{r}).C_wei_p = wei_p(1, 1:connectivity_end_idx);
+
+                            model_data.(predictors{p}).(runs{r}).A_wei = wei(1, (connectivity_end_idx+1):end);
+                            model_data.(predictors{p}).(runs{r}).A_wei_p = wei_p(1, (connectivity_end_idx+1):end);
+
+                            model_data.(predictors{p}).(runs{r}).CA_wei = wei;
+                            model_data.(predictors{p}).(runs{r}).CA_wei_p = wei_p;
+
+                        case 'hrf_voxel'
+                            model_data.(predictors{p}).(runs{r}).A_wei = wei;
+                            model_data.(predictors{p}).(runs{r}).A_wei_p = wei_p;
+
+                        case 'connectivity'
+                            model_data.(predictors{p}).(runs{r}).C_wei = wei;
+                            model_data.(predictors{p}).(runs{r}).C_wei_p = wei_p;
+                    end
+
+
+                    % ==== Normal weights  + intercept
+                elseif strcmp(weights_option, 'normal_wei')
+                    wei = temp_data.boot_cv_pcr_structure.model_weights.outpout{1};
+                    intercept = temp_data.boot_cv_pcr_structure.model_weights.outpout{2};
+                    switch predictors{p}
+                        case 'connectivity_and_hrf_voxel'
+                            model_data.(predictors{p}).(runs{r}).C_wei = wei(1:connectivity_end_idx, 1);
+                            model_data.(predictors{p}).(runs{r}).A_wei = wei((connectivity_end_idx+1):end, 1);
+                            model_data.(predictors{p}).(runs{r}).CA_wei = wei;
+                            model_data.(predictors{p}).(runs{r}).intercept = intercept;
+
+                        case 'hrf_voxel'
+                            model_data.(predictors{p}).(runs{r}).A_wei = wei;
+                            model_data.(predictors{p}).(runs{r}).intercept = intercept;
+
+                        case 'connectivity'
+                            model_data.(predictors{p}).(runs{r}).C_wei = wei;
+                            model_data.(predictors{p}).(runs{r}).intercept = intercept;
+                    end
+
+                else
+                    disp('Weights option should be either bootstrap or normal');
+                end
+
+
+
+            end
+        end
+    end
+
+
+
+
+    function load_mpc_100
+        print_header('SHOULD BE DOUBLE CHECKED BEFORE PROJECT TRANSFER')
+        for p = 1:length(predictors)
+            for r = 1:length(runs)
+                filename = fullfile(basedir, '/cv_pcr_performance/Final_before_connectivity_and_activation_normalization_step_was_matched/', 'Final_model_Nov7.mat');
+                temp_data = load(filename);
+                temp_data = temp_data.result_structure_final_mpc_100;
+
+                % ==== Normal weights  + intercept
+                if strcmp(weights_option, 'normal_wei')
+                    wei = temp_data.(predictors{p}).(['results_' runs{r} '_same_time_window']).training.variance_normalized.model_weights.outpout{1};
+                    intercept = temp_data.(predictors{p}).(['results_' runs{r} '_same_time_window']).training.variance_normalized.model_weights.outpout{2};
+                    switch predictors{p}
+                        case 'connectivity_and_hrf_voxel'
+                            model_data.(predictors{p}).(runs{r}).C_wei = wei(1:connectivity_end_idx, 1);
+                            model_data.(predictors{p}).(runs{r}).A_wei = wei((connectivity_end_idx+1):end, 1);
+                            model_data.(predictors{p}).(runs{r}).CA_wei = wei;
+                            model_data.(predictors{p}).(runs{r}).intercept = intercept;
+
+                        case 'hrf_voxel'
+                            model_data.(predictors{p}).(runs{r}).A_wei = wei;
+                            model_data.(predictors{p}).(runs{r}).intercept = intercept;
+
+                        case 'connectivity'
+                            model_data.(predictors{p}).(runs{r}).C_wei = wei;
+                            model_data.(predictors{p}).(runs{r}).intercept = intercept;
+                    end
+                else
+                    disp('Weights option should be either bootstrap or normal');
+                end
+            end
+        end
+    end
+
+end
+
+
+

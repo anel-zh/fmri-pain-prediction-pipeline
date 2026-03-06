@@ -2,7 +2,6 @@ function mint_a1_predictors_extraction(config_structure, participants_option, va
 
 %% Function: Setup
 % Author: Anel Zhunussova
-% Last Update: 24th Mar 2024 -> double checked
 % Details:
 %     - Denoising, getting connectivity(DCC), activation (HRF voxel or roi).
 
@@ -22,8 +21,6 @@ for var_idx = 1:length(varargin)
                 run_to_analyze = varargin{var_idx+1}; 
             case 'caps_run_num'
                 run_num_caps = varargin{var_idx+1};
-            case 'quinine_run_num'
-                run_num_quinine =  varargin{var_idx+1};
             case 'cut_duration_activation'
                 cut_duration = varargin{var_idx+1};
             case 'folder_name_suffix'
@@ -32,8 +29,6 @@ for var_idx = 1:length(varargin)
             case 'func_folder_name'
                 func_folder_input = true;
                 func_folder_name = varargin{var_idx+1};
-            case 'specificity'
-                specificity = varargin{var_idx+1};
         end
     end
 end
@@ -64,12 +59,6 @@ file_pattern = config_structure.file_pattern;
 % Based on the dataset
 nuisance_name_rest = ['nuisance_' denoising_method 'run1.mat'];
 nuisance_name_caps = ['nuisance_' denoising_method  'run10.mat'];
-if ismember('quinine', run_to_analyze)
-    nuisance_name_caps = ['nuisance_' denoising_method 'run' num2str(run_num_caps) '.mat'];
-    nuisance_name_quinine = ['nuisance_' denoising_method  'run' num2str(run_num_quinine) '.mat'];
-    print_header('CHECK QUININE RUN NUMBER');
-end
-
 
 switch dataset
     case 'mpc_100'
@@ -80,8 +69,8 @@ switch dataset
             folder_dir = sprintf('%s%s_%s_%s', denoising_method, dataset, atlas_name, folder_dir_suffix);
         end
         save_middle_name = [denoising_method dataset '_'];
-    case 'mpc_wani'
-        header_text = 'Working with MPC-Wani case.';
+    case 'mpc_one'
+        header_text = 'Working with MPC-1 case.';
         if folder_dir_input == false
             folder_dir = sprintf('%s%s', denoising_method, atlas_name);
         else
@@ -107,6 +96,8 @@ for participant_i = 1:numel(participants_to_analyze)
     participant_savedir = fullfile(savedir, folder_dir, participant_name);
     if ~exist(fullfile(participant_savedir, 'data', 'Activation'), 'dir')
         mkdir(fullfile(participant_savedir, 'data', 'Activation'));
+    end 
+    if ~exist(fullfile(participant_savedir, 'data', 'DCC'), 'dir')
         mkdir(fullfile(participant_savedir, 'data', 'DCC'));
     end
 
@@ -116,9 +107,6 @@ for participant_i = 1:numel(participants_to_analyze)
     end
     if ismember('caps', run_to_analyze)
         nuisance_caps = load(fullfile(nasdir, participant_name, 'nuisance_mat', nuisance_name_caps));
-    end
-    if ismember('quinine', run_to_analyze)
-        nuisance_quinine = load(fullfile(nasdir, participant_name, 'nuisance_mat', nuisance_name_quinine));
     end
 
     % Files based on the selected runs
@@ -131,10 +119,6 @@ for participant_i = 1:numel(participants_to_analyze)
         run_files_rest = dir(fullfile(participant_dir, sprintf('%s-resting_run-01*_bold.nii', file_pattern)));
         run_files_all = [run_files_all; run_files_rest];
     end
-    if ismember('quinine', run_to_analyze)
-       run_files_quinine = dir(fullfile(participant_dir, sprintf('%s-quinine_*_bold.nii', file_pattern)));
-       run_files_all = [run_files_all; run_files_quinine];
-    end 
 
     % Loop through each run
     for run_i = 1:numel(run_files_all)
@@ -150,26 +134,11 @@ for participant_i = 1:numel(participants_to_analyze)
         elseif contains(run_file.name, 'resting')
             fmri_img.covariates = nuisance_rest.R;
             run_condition = 'rest';
-        elseif contains(run_file.name, 'quinine')
-            fmri_img.covariates = nuisance_quinine.R;
-            run_condition = 'quinine';
-        end
+        end 
 
         % Get filename for saving
         [~, filename, ~] = fileparts(run_file.name);
 
-
-        % Adding global mean option (temp -> checking)
-       for extract_idx = 1:length(extract_values) 
-            switch extract_values{extract_idx}
-                case 'hrf_voxel_global_mean'
-                    % Adding global mean as a regressor 
-                    global_mean = mean(fmri_img.dat, 1)';  % Average across all voxels per TR, result for caps specificity: 1613 x 1
-                    fmri_img.covariates(:, end+1) = global_mean;
-                case  'hrf_voxel_rescale_25'
-                    fmri_img.dat = fmri_img.dat .* 25;% scaling factor of 25
-            end  
-       end 
         %% Denoising, extracting activation, connectivity
         for extract_idx = 1:length(extract_values)
             switch extract_values{extract_idx}
@@ -184,7 +153,6 @@ for participant_i = 1:numel(participants_to_analyze)
                     save(roi_output_path, 'roi_meants_dat', '-mat');
                     fprintf('ROI mean activation completed and saved.\n');
 
-
                     % DCC
                     dcc_output_path = fullfile(participant_savedir, 'data', 'DCC', ['dcc' save_name]);
                     dfc_dat = DCC_jj(roi_meants_dat, 'simple', 'whiten');
@@ -192,7 +160,7 @@ for participant_i = 1:numel(participants_to_analyze)
                     save(dcc_output_path, 'dfc_dat', '-mat');
                     fprintf('DCC calculation completed and saved.\n');
 
-                case {'hrf_voxel', 'hrf_roi', 'hrf_voxel_rescale_25', 'hrf_voxel_global_mean'}
+                case {'hrf_voxel', 'hrf_roi'}
             
                     TR = 0.46;
                     total_TR = size(fmri_img.dat, 2);
@@ -209,15 +177,12 @@ for participant_i = 1:numel(participants_to_analyze)
                     binning_parameters = HH_get_binning_param_mint(config_structure);
 
                     % Generate the design matrix with single trial option
-                    if specificity
-                        input_onsets = HH_specificity_get_onset_duration_mint(run_condition, total_TR); % cut duration is set as default for capsaicin and quinine
+                    if cut_duration && strcmp(run_condition, 'caps') 
+                        input_onsets = HH_get_onset_duration_mint(total_TR, binning_parameters, run_condition, 'cut_duration', true);
                     else
-                        if cut_duration && strcmp(run_condition, 'caps') || cut_duration && strcmp(run_condition, 'quinine')
-                            input_onsets = HH_get_onset_duration_mint(total_TR, binning_parameters, run_condition, 'cut_duration', true);
-                        else
-                            input_onsets = HH_get_onset_duration_mint(total_TR, binning_parameters, run_condition);
-                        end
+                        input_onsets = HH_get_onset_duration_mint(total_TR, binning_parameters, run_condition);
                     end
+                    
                     X = plotDesign_mint(input_onsets,[], TR, length_scan, 'samefig', spm_hrf(1), 'singletrial');
                     close all;
 
@@ -235,6 +200,7 @@ for participant_i = 1:numel(participants_to_analyze)
                         end
                         toc
                         voxel_beta_dat = voxel_beta_dat';
+                        
                         % Save Voxel-based activation pattern
                         save(output_path, 'voxel_beta_dat', '-mat', '-v7.3');
                         print_header(sprintf('HRF voxel done for %s | %s.', participant_name, run_condition));
@@ -259,29 +225,6 @@ for participant_i = 1:numel(participants_to_analyze)
 
                     end
    
-                % Additional to QC replication set    
-                case 'no_denoising_activation'
-                    if ~exist(fullfile(participant_savedir, 'data', 'Activation_QC_no_denoising'), 'dir')
-                        mkdir(fullfile(participant_savedir, 'data', 'Activation_QC_no_denoising'));
-                    end
-                    % ROI Mean Time-series & Denoising
-                    save_name = ['_' save_middle_name filename '.mat'];
-
-                    [voxel_dat1, roi_meants_dat] = canlab_connectivity_preproc(fmri_img, 'extract_roi', atlas_img);
-                    roi_meants_dat = roi_meants_dat{1,1}.dat;
-
-                    roi_output_path = fullfile(participant_savedir, 'data', 'Activation_QC_no_denoising', ['roi' save_name]);
-                    save(roi_output_path, 'roi_meants_dat', '-mat');
-                    fprintf('ROI mean activation completed and saved.\n');
-                    close all;
-
-                    voxel_dat = voxel_dat1.dat;
-                    voxel_output_path = fullfile(participant_savedir, 'data', 'Activation_QC_no_denoising', ['voxel' save_name]);
-
-                    save(voxel_output_path, 'voxel_dat', '-mat', '-v7.3');
-                    print_header(sprintf('No denoising dat done for %s | %s.', participant_name, run_condition));
-                    close all;
-            end
         end
     end
 end
